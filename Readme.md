@@ -153,6 +153,10 @@ You should see the consumers processing messages from each of the publishers.
 
 The `CreatedEventConsumer` has some commented out code in it. Uncomment this and the consumer will start to throw different exceptions when processing messages. The different exceptions will trigger either retries in MassTransit or faults within MassTransit, so you can play around and see what happens inbox retries and moving messages to error queues for exceptions, etc.
 
+## Manual schema migration
+
+If you don't use EF Migrations, you can generate a script to create the inbox and outbox database tables by running `dotnet ef migrations script 0 --context publishercontext` from the Publisher demo project.
+
 ## License
 
 PropertyMe.MassTransit.MySqlOutbox is licensed under the MIT License.

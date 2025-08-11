@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 using CommandLine;
 using MassTransit.MySqlOutbox.Demo.Contexts;
 using MassTransit.MySqlOutbox.Demo.Publisher;
@@ -9,16 +10,19 @@ using MassTransit.MySqlOutbox.Extensions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
-var parserResult = Parser.Default.ParseArguments<Options>(args);
 
-if (parserResult.Errors.Any())
-{
-   Console.WriteLine(parserResult.Errors.ToString());// Handle errors
-   return;
-}
 
-var publisherId = parserResult.Value.Id;
-var automaticallyPublish = parserResult.Value.Auto;
+var Options = new Options();
+
+var parserResult = Parser.Default.ParseArguments<Options>(args)
+   .WithParsed(options =>
+   {
+      Options = options;
+   });
+
+
+Console.WriteLine($"Publisher ID: {Options.Id}");
+Console.WriteLine($"Automatically Publish: {Options.Auto}");
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -36,14 +40,13 @@ if (string.IsNullOrEmpty(connectionString))
    throw new InvalidOperationException("Connection string 'DefaultConnection' is not configured.");
 }
 
-if (automaticallyPublish)
+if (Options.Auto)
 {
    builder.Services.AddHostedService<AutoPublisherService>();
 }
 
 builder.AddMassTransit(configuration, typeof(Program).Assembly);
 
-builder.AddMySqlContext<PublisherContext>(connectionString);
 builder.AddMySqlContext<PublisherContext>(connectionString);
 
 builder.Services.AddOutboxInboxServices<PublisherContext>();
@@ -56,7 +59,7 @@ builder.Services.AddDbContext<ContextForDDDEntity>(o =>
 
 builder.Services.AddScoped<PublishService>();
 builder.Services.AddScoped<DDDEntityCreationService>();
-builder.Services.AddSingleton<Options>(parserResult.Value);
+builder.Services.AddSingleton(Options);
 
 var app = builder.Build();
 
@@ -74,12 +77,12 @@ app.MapPost("/publish",
 app.MapPost("/create",
    async ([FromServices] DDDEntityCreationService service) =>
    {
-      await service.CreateNewEntity(publisherId);
+      await service.CreateNewEntity(Options.Id);
       return Results.Ok();
    });
 
 
-Console.WriteLine($"Publisher {publisherId} is running...");
+Console.WriteLine($"Publisher is running...");
 
 app.Run();
 
@@ -107,7 +110,7 @@ static int FindAvailablePort(int startingPort)
 public class Options
 {
    [Option('i', "id", Required = false, HelpText = "Identifier for the publisher instance", Default = "1")]
-   public string Id { get; set; } = "";
+   public string Id { get; set; } = "1";
 
    [Option("auto", Required = false, HelpText = "Automatically send messages in a loop.", Default = false)]
    public bool Auto { get; set; } = false;

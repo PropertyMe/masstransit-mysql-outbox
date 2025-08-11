@@ -18,7 +18,7 @@ namespace MassTransit.MySqlOutbox.Demo.Migrations
                 name: "InboxMessages",
                 columns: table => new
                 {
-                    MessageId = table.Column<byte[]>(type: "binary(16)", nullable: false),
+                    MessageId = table.Column<Guid>(type: "binary(16)", nullable: false),
                     ConsumerId = table.Column<string>(type: "varchar(255)", nullable: false)
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     State = table.Column<int>(type: "int", nullable: false),
@@ -35,7 +35,7 @@ namespace MassTransit.MySqlOutbox.Demo.Migrations
                 name: "OutboxMessages",
                 columns: table => new
                 {
-                    Id = table.Column<byte[]>(type: "binary(16)", nullable: false),
+                    Id = table.Column<Guid>(type: "binary(16)", nullable: false),
                     State = table.Column<int>(type: "int", nullable: false),
                     Payload = table.Column<string>(type: "longtext", nullable: false)
                         .Annotation("MySql:CharSet", "utf8mb4"),
