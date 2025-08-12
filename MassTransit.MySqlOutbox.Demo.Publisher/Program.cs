@@ -64,8 +64,6 @@ builder.Services.AddSingleton(Options);
 var app = builder.Build();
 
 app.MigrateDatabase<PublisherContext>();
-app.UseSwagger();
-app.UseSwaggerUI();
 
 app.MapPost("/publish",
    async ([FromServices] PublishService service) =>

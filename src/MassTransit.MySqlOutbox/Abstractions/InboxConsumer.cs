@@ -27,11 +27,35 @@ public abstract class InboxConsumer<TMessage, TDbContext> : IConsumer<TMessage>
       var messageId = context.Headers.Get<Guid>(Constants.OutboxMessageId) ?? context.MessageId;
       var dbContext = _sp.GetRequiredService<TDbContext>();
       var logger = _sp.GetRequiredService<ILogger<InboxConsumer<TMessage, TDbContext>>>();
-
       var ct = context.CancellationToken;
 
-      var exists =
-         await dbContext.InboxMessages.AnyAsync(x => x.MessageId == messageId && x.ConsumerId == _consumerId, ct);
+      var executionStrategy = dbContext.Database.CreateExecutionStrategy();
+
+      if (!executionStrategy.RetriesOnFailure)
+      {
+         //no retry, so just go ahgead and process the message
+         await ProcessInboxMessageAsync(dbContext, logger, messageId, context, ct);
+         return;
+      }
+
+      //We're going to retry, so we need to retry according to the executionStrategy
+      await executionStrategy.ExecuteAsync(async () =>
+      {
+         await ProcessInboxMessageAsync(dbContext, logger, messageId, context, ct);
+      });
+
+   }
+
+      private async Task ProcessInboxMessageAsync(
+      TDbContext dbContext,
+      ILogger logger,
+      Guid? messageId,
+      ConsumeContext<TMessage> context,
+      CancellationToken ct)
+   {
+      // Ensure (MessageId, ConsumerId) uniqueness is enforced at DB level to avoid races.
+      var exists = await dbContext.InboxMessages
+         .AnyAsync(x => x.MessageId == messageId && x.ConsumerId == _consumerId, ct);
 
       if (!exists)
       {
@@ -42,47 +66,51 @@ public abstract class InboxConsumer<TMessage, TDbContext> : IConsumer<TMessage>
             State = MessageState.New,
             ConsumerId = _consumerId
          });
-
          await dbContext.SaveChangesAsync(ct);
       }
 
-      await using var transactionScope =
+      await using var transaction =
          await dbContext.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
 
-         var inboxMessage = await dbContext.InboxMessages
-            .FromSqlInterpolated($@"
+      var inboxMessage = await dbContext.InboxMessages
+         .FromSqlInterpolated($@"
                SELECT * FROM InboxMessages
                WHERE MessageId = {messageId}
                AND ConsumerId = {_consumerId}
                AND State = {MessageState.New}
                FOR UPDATE SKIP LOCKED")
-            .OrderBy(x => x.MessageId)
-            .FirstOrDefaultAsync(ct);
+         .OrderBy(x => x.MessageId)
+         .FirstOrDefaultAsync(ct);
 
       if (inboxMessage == null)
       {
+         await transaction.RollbackAsync(ct);
          return;
       }
 
       try
       {
-         await Consume(context.Message, transactionScope, ct);
+         await Consume(context.Message, transaction, ct);
 
          inboxMessage.State = MessageState.Done;
          inboxMessage.UpdatedAt = DateTime.UtcNow;
-
          await dbContext.SaveChangesAsync(ct);
-         await transactionScope.CommitAsync(ct);
+
+         await transaction.CommitAsync(ct);
       }
       catch (Exception ex)
       {
-         logger.LogError(ex, "Exception thrown while consuming message {messageId} by {consumerId}",
-            messageId,
-            _consumerId);
-         
-         await transactionScope.RollbackAsync(ct);
+         logger.LogError(ex, "Exception while consuming message {messageId} by {consumerId}", messageId, _consumerId);
 
-         //There was an exception. Update the inbox item to reflect the time we failed
+         try
+         {
+            await transaction.RollbackAsync(ct);
+         }
+         catch (Exception rollbackEx)
+         {
+            logger.LogWarning(rollbackEx, "Rollback failed for message {messageId}", messageId);
+         }
+
          inboxMessage.UpdatedAt = DateTime.UtcNow;
          await dbContext.SaveChangesAsync(ct);
          throw;

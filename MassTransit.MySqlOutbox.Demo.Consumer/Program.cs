@@ -3,6 +3,7 @@ using MassTransit;
 using MassTransit.MySqlOutbox.Demo.Consumer.Contexts;
 using MassTransit.MySqlOutbox.Demo.Shared.Extensions;
 using MassTransit.MySqlOutbox.Extensions;
+using Microsoft.EntityFrameworkCore;
 
 var parserResult = Parser.Default.ParseArguments<Options>(args);
 
@@ -53,7 +54,17 @@ var host = Host.CreateDefaultBuilder(args)
 
       services.AddMySqlContext<ConsumerContext>(connectionString);
       services.AddOutboxInboxServices<ConsumerContext>();
-      services.AddMySqlContext<CreationConsumerContext>(connectionString);
+      services.AddDbContext<CreationConsumerContext>(options =>
+      {
+         options.UseMySql(
+            connectionString,
+            ServerVersion.AutoDetect(connectionString),
+            mySqlOptions => mySqlOptions.EnableRetryOnFailure(
+                  maxRetryCount: 5,
+                  maxRetryDelay: TimeSpan.FromSeconds(15),
+                  errorNumbersToAdd: [1042, 1158, 1159, 1160, 1927] // a few transient MySQL errors
+            ));
+      });
    })
    .Build();
 
