@@ -74,7 +74,9 @@ services.AddOutboxInboxServices<YourDbContext>();
 
 This registers the background services that will scan the outbox table for messages to send via MassTransit, and the clean up services to remove stale messages from the inbox/outbox tables. You only need to call this once, using just one DbContext.
 
-### Publishing Messages
+Note: The DbContext used for the outbox must not have an execution strategy configured, otherwise exceptions will be thrown. This is to prevent a retry execution strategy for transient database failures from causing messages to published via MassTransit more than once. In multi-context environments, we recommend that the dbContext used be a dedicated DbContext with only the inbox and outbox interfaces implemented.
+
+### Publishing Messages (Outbox Pattern)
 
 Rather than calling MassTransit's `publishEndpoint.Publish()` you will instead add your messages to the outbox table in your DbContext.
 
@@ -118,6 +120,8 @@ public class YourConsumer : InboxConsumer<YourMessage, YourDbContext>
     }
 }
 ```
+
+Note: Unlike the DbContext used for the background services, you may use a dbcontext with a retry execution strategy. If you have your own non-transactional side effects occurring within your consumers, you will need to handle these scenarios yourself.
 
 ## Example Code
 
